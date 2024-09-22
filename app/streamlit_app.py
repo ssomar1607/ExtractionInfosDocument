@@ -8,11 +8,11 @@ from io import StringIO
 import tiktoken
 
 
-st.title("🧾 Extraction d'informations OPC")
+st.title("🧾 Extraction d'informations sur documents public")
 
 openai_api_key = st.sidebar.text_input("Clé d'API OpenAI", type="password")
 
-uploaded_file = st.sidebar.file_uploader("Dépose ton prospectus OPC", type=['pdf'])
+uploaded_file = st.sidebar.file_uploader("Dépose ton document", type=['pdf'])
 
 # Function to count tokens
 def count_tokens(text):
@@ -79,8 +79,8 @@ with st.form("my_form"):
         "Entre tes questions:",
         """Questions:
 
-1) Quelle est la devise du fond OPC
-2) quel est son CODE ISIN
+1) Qui est l'auteur du document
+2) Quel est le titre du document
 
 Pour chaque question, répond en mentionnant l'extrait du texte qui te permet de répondre ainsi que la page où se trouve l'extrait.
 
@@ -99,13 +99,14 @@ Exemple de réponse:
     if not openai_api_key.startswith("sk-"):
         st.warning("S'il te plait spécifie ta clé API", icon="⚠")
     elif uploaded_file is None:
-        st.warning("S'il te plait dépose ton OPC", icon="⚠")
+        st.warning("S'il te plait dépose ton document", icon="⚠")
         
         
     # Count tokens and estimate price for the query
     query_token_count = count_tokens(text)
     query_price_estimate = estimate_price(query_token_count)
     
+    total_tokens = 0
     if uploaded_file is not None:
         # Total tokens and price (document + query)
         total_tokens = doc_token_count + query_token_count
@@ -114,7 +115,10 @@ Exemple de réponse:
         container = st.container(border=True)
         container.write(f"🧮 Nombre de tokens total: {total_tokens}")
         container.write(f"💵 Estimation du prix de la requête: ${total_price:.6f}")
+        
+    if total_tokens > 200000:
+        st.warning("Attention, la limite de maximum de tokens est dépassé, change le document ou réduis le nombre de question. Limite: 200 000", icon="⚠")
     
     submitted = st.form_submit_button("Envoyer la requête")
-    if submitted and openai_api_key.startswith("sk-") and uploaded_file is not None:
+    if submitted and openai_api_key.startswith("sk-") and uploaded_file is not None and total_tokens <= 200000:
         generate_response(text)
