@@ -4,3 +4,5 @@ langchain
 langchain-community
 pypdf
 tiktoken
+openai
+anthropic
