@@ -1,6 +1,7 @@
 import streamlit as st
 from langchain_community.chat_models import ChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
+from langchain_mistralai import ChatMistralAI
 from langchain.document_loaders import PyPDFLoader
 from langchain.chains.question_answering import load_qa_chain
 from langchain_core.documents import Document
@@ -9,8 +10,62 @@ import re
 from io import StringIO
 import tiktoken
 from openai import OpenAI
+from mistralai import Mistral
 import anthropic
 import textwrap
+
+
+def count_tokens(text):
+    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    return len(encoding.encode(text))
+
+def estimate_price(token_count):
+    return (token_count / 1000000) * prix
+
+def is_openAI():
+    return selected_distrib == "OpenAI"
+
+def is_openAI_and_key_set():
+    return is_openAI() and openai_api_key is not None and openai_api_key != ''
+
+def is_anthropic():
+    return selected_distrib == "Anthropic"
+
+def is_anthropic_and_key_set():
+    return is_anthropic() and anthropic_api_key is not None and anthropic_api_key != ''
+
+
+def is_mistral():
+    return selected_distrib == "Mistral"
+
+def is_mistral_and_key_set():
+    return is_mistral() and mistral_api_key is not None and mistral_api_key != ''
+
+def get_models_list():
+    models_id = []
+    if is_openAI_and_key_set():
+        client = OpenAI(api_key=openai_api_key)
+        models = client.models.list()
+        for model in models:
+            model_id = model.id
+            if ("gpt" in model_id or "o1" in model_id) and "preview" not in model_id:
+                models_id.append(model_id)
+    elif is_anthropic_and_key_set():
+        client = anthropic.Anthropic(api_key=anthropic_api_key)
+        models = client.models.list()
+        for model in models:
+            model_id = model.id
+            #if "gpt" in model_id and "preview" not in model_id:
+            models_id.append(model_id)
+    elif is_mistral_and_key_set():
+        client = Mistral(api_key=mistral_api_key)
+        models = client.models.list().data
+        for model in models:
+            model_id = model.id
+            #if "gpt" in model_id and "preview" not in model_id:
+            models_id.append(model_id)
+    return models_id
+    
 
 
 model_infos = {
@@ -22,44 +77,32 @@ model_infos = {
                 "claude-3-5-sonnet-20241022": {"price" : 3, "context" : 200000},
                 "claude-3-5-haiku-20241022": {"price" : 0.8, "context" : 200000},
                 "claude-3-opus-20240229": {"price" : 15, "context" : 200000},
+                "mistral-large-latest": {"price" : 2, "context" : 128000},
                }
 
 st.title("🧾 Extraction d'informations sur documents public")
 
-selected_distrib = st.sidebar.selectbox("Sélection du distributeur", options=("OpenAI", "Anthropic"), placeholder="Selectionne un distributeur...")
+selected_distrib = st.sidebar.selectbox("Sélection du distributeur", options=("OpenAI", "Anthropic", "Mistral"), placeholder="Selectionne un distributeur...")
 
 openai_api_key = None
-if selected_distrib is "OpenAI":
+if is_openAI():
     openai_api_key = st.sidebar.text_input("Clé d'API OpenAI", type="password")
 
 anthropic_api_key = None
-if selected_distrib == "Anthropic":
+if is_anthropic():
     anthropic_api_key = st.sidebar.text_input("Clé d'API Anthropic", type="password")
+    
+mistral_api_key = None
+if is_mistral():
+    mistral_api_key = st.sidebar.text_input("Clé d'API Mistral", type="password")
 
 uploaded_file = st.sidebar.file_uploader("Dépose ton document", type=['pdf'])
 
 info = st.sidebar.text_input("Information recherchée", type="default")
 
 selected_model = None
-if selected_distrib == "OpenAI" and openai_api_key is not None and openai_api_key != '':
-    client = OpenAI(api_key=openai_api_key)
-    models = client.models.list()
-    models_id = []
-    for model in models:
-        model_id = model.id
-        if ("gpt" in model_id or "o1" in model_id) and "preview" not in model_id:
-            models_id.append(model.id)
-    selected_model = st.sidebar.selectbox("Sélection du modèle", options=models_id, placeholder="Selectionne un modèle...")
-        
-if selected_distrib == "Anthropic" and anthropic_api_key is not None and anthropic_api_key != '':
-    client = anthropic.Anthropic(api_key=anthropic_api_key)
-    models = client.models.list()
-    models_id = []
-    for model in models:
-        model_id = model.id
-        #if "gpt" in model_id and "preview" not in model_id:
-        models_id.append(model.id)
-    selected_model = st.sidebar.selectbox("Sélection du modèle", options=models_id, placeholder="Selectionne un modèle...")
+if is_openAI_and_key_set() or is_anthropic_and_key_set() or is_mistral_and_key_set():
+    selected_model = st.sidebar.selectbox("Sélection du modèle", options=get_models_list(), placeholder="Selectionne un modèle...")
 
 prix = None
 context = None
@@ -74,14 +117,6 @@ if selected_model is not None:
     container.write("Information modèle:")
     container.write(f"💲Prix: {prix}$/M Input tokens")
     container.write(f"📖 Contexte Max {context} tokens")
-
-# Function to count tokens
-def count_tokens(text):
-    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    return len(encoding.encode(text))
-
-def estimate_price(token_count):
-    return (token_count / 1000000) * prix
 
 
 if uploaded_file is not None:
@@ -112,11 +147,14 @@ if uploaded_file is not None:
 
 
 def generate_response(input_text):
+    input_text = input_text.replace("{info}", info)
     model = None
-    if selected_distrib is "OpenAI":
+    if is_openAI():
          model = ChatOpenAI(temperature=0.7, api_key=openai_api_key, model=selected_model)
-    elif selected_distrib is "Anthropic":
+    elif is_anthropic():
          model = ChatAnthropic(temperature=0.7, anthropic_api_key=anthropic_api_key, model=selected_model)
+    elif is_mistral():
+         model = ChatMistralAI(temperature=0.7, api_key=mistral_api_key, model=selected_model)
     if total_tokens > context:
         batchs_response = []
         batch_amount = int(total_tokens/context)+2
@@ -184,8 +222,8 @@ with st.form("my_form"):
         "Entre tes questions:",
         """Questions:
 
-1) Qui est l'auteur du document ?
-2) Quel est le titre du document ?
+1) Qui est l'auteur du document {info} ?
+2) Quel est le titre du document  {info} ?
 
 Pour chaque question, répond en mentionnant l'extrait du texte qui te permet de répondre ainsi que la page où se trouve l'extrait.
 
@@ -203,7 +241,7 @@ Exemple de réponse:
    - Extrait du texte: <<"Document écrit par Marcel Drick">>
    - Page: 3 sur 4""",height=350
     )
-    if openai_api_key is None and anthropic_api_key is None:
+    if not(is_anthropic_and_key_set()) and not(is_openAI_and_key_set()) and not(is_mistral_and_key_set()):
         st.warning("S'il te plait spécifie ta clé API", icon="⚠")
     elif uploaded_file is None:
         st.warning("S'il te plait dépose ton document", icon="⚠")
