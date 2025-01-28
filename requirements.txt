@@ -6,4 +6,5 @@ pypdf
 tiktoken
 openai
 anthropic
-Mistral
+mistralai
+langchain_mistralai
